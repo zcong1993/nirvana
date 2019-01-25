@@ -171,8 +171,12 @@ func (o *apiOptions) serve(apis map[string][]byte) error {
 	if err != nil {
 		return err
 	}
+	swaggerData, err := o.indexSwaggerData(versions)
+	if err != nil {
+		return err
+	}
 	cfg.Configure(
-		nirvana.Descriptor(o.descriptorForData("/", data, mimeHTML)),
+		nirvana.Descriptor(o.descriptorForData("/", data, mimeHTML), o.descriptorForData("/swagger", swaggerData, mimeHTML)),
 		nirvana.IP(ip),
 		nirvana.Port(port),
 	)
@@ -330,4 +334,95 @@ func (o *apiOptions) indexData(versions []string) ([]byte, error) {
 
 func (o *apiOptions) Manuals() string {
 	return ""
+}
+
+func (o *apiOptions) indexSwaggerData(versions []string) ([]byte, error) {
+	index := `
+<!-- HTML for static distribution bundle build -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Swagger UI</title>
+    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@3.20.5/swagger-ui.css" >
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@3.20.5/favicon-32x32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@3.20.5/favicon-16x16.png" sizes="16x16" />
+    <style>
+      html
+      {
+        box-sizing: border-box;
+        overflow: -moz-scrollbars-vertical;
+        overflow-y: scroll;
+      }
+      *,
+      *:before,
+      *:after
+      {
+        box-sizing: inherit;
+      }
+      body
+      {
+        margin:0;
+        background: #fafafa;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="swagger-ui"></div>
+
+    <script src="https://unpkg.com/swagger-ui-dist@3.20.5/swagger-ui-bundle.js"> </script>
+    <script src="https://unpkg.com/swagger-ui-dist@3.20.5/swagger-ui-standalone-preset.js"> </script>
+    <script>
+	// list of APIS
+      var apis = [
+        {{ range $i, $v := . }}
+        {
+            name: '{{ $v.Name }}',
+            url: '{{ $v.Path }}'
+        },
+		{{ end }}
+      ];
+    window.onload = function() {
+      // Begin Swagger UI call region
+      const ui = SwaggerUIBundle({
+        urls: apis,
+        dom_id: '#swagger-ui',
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        plugins: [
+          SwaggerUIBundle.plugins.DownloadUrl
+        ],
+        layout: "StandaloneLayout"
+      })
+      // End Swagger UI call region
+      window.ui = ui
+    }
+  </script>
+  </body>
+</html>
+`
+	tmpl, err := template.New("index.html").Parse(index)
+	if err != nil {
+		return nil, err
+	}
+	data := []struct {
+		Name string
+		Path string
+	}{}
+	for _, v := range versions {
+		path := o.pathForVersion(v)
+		data = append(data, struct {
+			Name string
+			Path string
+		}{v, path})
+	}
+	buf := bytes.NewBuffer(nil)
+	if err := tmpl.Execute(buf, data); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
